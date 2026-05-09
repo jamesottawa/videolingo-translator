@@ -79,6 +79,7 @@ export default function App() {
   const [vttUrl, setVttUrl] = useState<string | null>(null);
   const [vttContent, setVttContent] = useState<string | null>(null);
   const [dubbingEnabled, setDubbingEnabled] = useState(true);
+  const [globalError, setGlobalError] = useState<string | null>(null);
   const [videoId, setVideoId] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
@@ -136,8 +137,9 @@ export default function App() {
       audio.onended = () => setPlayingPreviewId(null);
       audio.onerror = () => setPlayingPreviewId(null);
       audio.play();
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      setGlobalError("Preview error: " + (err.message || String(err)));
       setPlayingPreviewId(null);
     }
   };
@@ -173,6 +175,7 @@ export default function App() {
   const startTranslation = async () => {
     if (!file) return;
     setIsProcessing(true);
+    setGlobalError(null);
 
     const formData = new FormData();
     formData.append('video', file);
@@ -184,16 +187,34 @@ export default function App() {
         body: formData,
       });
 
+      let responseText = "";
+      try {
+         responseText = await response.text();
+      } catch(e) {}
+
       if (!response.ok) {
-        let msg = "Failed to translate";
+        let msg = `HTTP Error ${response.status}: Failed to translate`;
         try {
-          const body = await response.json();
-          msg = body.error || msg;
-        } catch(e) {}
+          if (responseText) {
+              const body = JSON.parse(responseText);
+              msg = body.error || msg;
+              if (body.details) msg += " - " + body.details;
+          }
+        } catch(e) {
+          if (responseText.trim().length > 0) {
+             msg += " - Server response issue.";
+          }
+        }
         throw new Error(msg);
       }
 
-      const data = await response.json();
+      let data;
+      try {
+          data = JSON.parse(responseText);
+      } catch (e: any) {
+          throw new Error("Server returned invalid data format instead of JSON.");
+      }
+
       if (data.vttText) {
         const blob = new Blob([data.vttText], { type: 'text/vtt' });
         const url = URL.createObjectURL(blob);
@@ -204,7 +225,7 @@ export default function App() {
         setVideoId(data.videoId);
       }
     } catch (error: any) {
-      alert("Error: " + error.message);
+      setGlobalError(error.message || String(error));
       console.error(error);
     } finally {
       setIsProcessing(false);
@@ -214,6 +235,7 @@ export default function App() {
   const downloadDubbedVideo = async () => {
     if (!videoId || !vttContent) return;
     setIsDownloading(true);
+    setGlobalError(null);
 
     try {
       const activeVoice = VOICES[targetLang]?.find(v => v.id === selectedVoiceId) || VOICES[targetLang][0];
@@ -231,10 +253,20 @@ export default function App() {
       });
 
       if (!response.ok) {
-        let msg = "Failed to dub video";
+        let msg = `HTTP Error ${response.status}: Failed to dub video`;
         try {
-          const body = await response.json();
-          msg = body.error || msg;
+          const text = await response.text();
+          try {
+             if (text) {
+                const body = JSON.parse(text);
+                msg = body.error || msg;
+                if (body.details) msg += " - " + body.details;
+             }
+          } catch(e) {
+             if (text.trim().length > 0) {
+                msg += " - Server response format issue.";
+             }
+          }
         } catch(e) {}
         throw new Error(msg);
       }
@@ -249,7 +281,7 @@ export default function App() {
       a.click();
       window.URL.revokeObjectURL(url);
     } catch(err: any) {
-      alert("Dubbing Download Error: " + err.message);
+      setGlobalError(err.message || String(err));
     } finally {
       setIsDownloading(false);
     }
@@ -453,7 +485,10 @@ export default function App() {
                 accept="video/*" 
                 className="hidden" 
                 ref={fileInputRef} 
-                onChange={handleFileSelect}
+                onChange={(e) => {
+                  setGlobalError(null);
+                  handleFileSelect(e);
+                }}
               />
           </div>
 
@@ -646,6 +681,20 @@ export default function App() {
             <section className="flex-1 overflow-hidden flex flex-col">
                <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Status</h3>
                <div className="space-y-4">
+                 {globalError && (
+                   <div className="p-4 border border-rose-200 rounded-xl bg-rose-50 flex items-start gap-3">
+                     <span className="text-rose-500 mt-0.5 shrink-0">
+                       <Loader2 className="w-4 h-4 hidden" />
+                       <div className="w-5 h-5 bg-rose-100 rounded flex items-center justify-center border border-rose-200">
+                         <span className="text-rose-500 font-bold text-[10px]">!</span>
+                       </div>
+                     </span>
+                     <div className="flex-1 min-w-0">
+                       <p className="text-sm font-semibold text-rose-800 tracking-tight">API Error</p>
+                       <p className="text-xs text-rose-700 mt-1.5 leading-relaxed break-words">{globalError}</p>
+                     </div>
+                   </div>
+                 )}
                  {isProcessing && (
                    <div className="p-4 border border-slate-100 rounded-xl bg-slate-50">
                      <div className="flex items-center gap-3 mb-3">
