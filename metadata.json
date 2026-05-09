@@ -1,0 +1,6 @@
+{
+  "name": "VideoLingo Translator",
+  "description": "Upload a video and translate its speech to another language using AI-powered WebVTT subtitles and text-to-speech dubbing.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
